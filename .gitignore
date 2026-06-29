@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.local
+*.db
+.DS_Store
+.idea/
+.vscode/
+
+# k6 outputs later
+load/results/
