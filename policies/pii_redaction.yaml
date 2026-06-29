@@ -1,0 +1,32 @@
+name: pii_redaction
+version: 1
+default: allow
+rules:
+  - id: block_ssn
+    match:
+      type: regex
+      field: output
+      pattern: '\b\d{3}-\d{2}-\d{4}\b'
+    action:
+      verdict: block
+      reason: detected SSN-shaped string in output
+
+  - id: redact_email
+    match:
+      type: regex
+      field: output
+      pattern: '[\w.+-]+@[\w-]+\.[\w.-]+'
+    action:
+      verdict: transform
+      replace_with: "[email redacted]"
+      reason: PII email detected
+
+  - id: block_long_output
+    match:
+      type: length
+      field: output
+      op: gt
+      value: 4000
+    action:
+      verdict: block
+      reason: output exceeded 4000 character limit

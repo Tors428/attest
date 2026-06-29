@@ -10,6 +10,7 @@ dependencies = [
     "sqlalchemy[asyncio]",
     "asyncpg",
     "alembic",
+    "pyyaml",
 ]
 
 [build-system]
@@ -21,3 +22,8 @@ where = ["src"]
 
 [tool.ruff]
 line-length = 100
+[project.optional-dependencies]
+dev = ["pytest", "pytest-asyncio"]
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
