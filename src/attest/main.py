@@ -2,8 +2,10 @@ from fastapi import FastAPI, Response
 from sqlalchemy import text
 
 from attest.db import engine
+from attest.routes import policies
 
 app = FastAPI(title="attest")
+app.include_router(policies.router)
 
 
 @app.get("/healthz")
