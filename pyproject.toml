@@ -1,0 +1,12 @@
+[project]
+name = "attest"
+version = "0.0.1"
+description = "policy enforcement gateway for LLM outputs"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+]
+
+[tool.ruff]
+line-length = 100
