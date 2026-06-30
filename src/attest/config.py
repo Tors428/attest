@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     database_url: str
     attest_signing_key: str
     attest_verify_key: str
+    groq_api_key: str
+    groq_model: str = "llama-3.3-70b-versatile"
 
     @property
     def signing_key_bytes(self) -> bytes:

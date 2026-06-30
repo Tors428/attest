@@ -12,6 +12,7 @@ dependencies = [
     "alembic",
     "pyyaml",
     "cryptography",
+    "groq",
 ]
 
 [build-system]
