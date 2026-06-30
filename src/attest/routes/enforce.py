@@ -1,6 +1,7 @@
 import time
 from uuid import UUID, uuid4
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select, text
@@ -13,11 +14,17 @@ from attest.dsl import PolicyDSL
 from attest.hashing import sha256_bytes
 from attest.llm import generate
 from attest.matcher import enforce as run_policy
+from attest.metrics import (
+    chain_write_latency_seconds,
+    enforce_latency_seconds,
+    enforce_requests,
+    llm_latency_seconds,
+)
 from attest.models import AuditEntry, Decision, Policy, Verdict
 
 router = APIRouter(prefix="/v1", tags=["enforce"])
+log = structlog.get_logger("attest.enforce")
 
-# arbitrary but stable advisory-lock key for the audit-chain critical section
 AUDIT_CHAIN_LOCK_KEY = 0xA77E57
 
 
@@ -45,6 +52,10 @@ async def enforce_endpoint(
     payload: EnforceRequest,
     session: AsyncSession = Depends(get_session),
 ):
+    request_id = str(uuid4())
+    structlog.contextvars.bind_contextvars(
+        request_id=request_id, policy_name=payload.policy_name
+    )
     t0 = time.perf_counter()
 
     # 1. fetch latest policy by name
@@ -56,22 +67,24 @@ async def enforce_endpoint(
     )
     policy_row = result.scalar_one_or_none()
     if policy_row is None:
+        log.info("policy_not_found")
         raise HTTPException(404, f"no policy named '{payload.policy_name}'")
 
     policy_dsl = PolicyDSL.model_validate(policy_row.dsl)
 
-    # 2. call the LLM
+    # 2. call the LLM (instrumented)
+    t_llm = time.perf_counter()
     llm_output = await generate(payload.input)
+    llm_latency_seconds.observe(time.perf_counter() - t_llm)
 
     # 3. deterministic enforcement
     decision = run_policy(policy_dsl, payload.input, llm_output)
 
     latency_ms = int((time.perf_counter() - t0) * 1000)
 
-    # 4. write decision + audit entry — advisory lock keeps the chain linear,
-    #    explicit commit because the session already opened a transaction
-    #    when we ran the select above (autobegin in SA 2.x async)
+    # 4. write decision + audit entry — advisory lock keeps the chain linear
     decision_id = uuid4()
+    t_chain = time.perf_counter()
     try:
         await session.execute(
             text("select pg_advisory_xact_lock(:k)"), {"k": AUDIT_CHAIN_LOCK_KEY}
@@ -93,7 +106,6 @@ async def enforce_endpoint(
         session.add(decision_row)
         await session.flush()
 
-        # find prev_hash from the highest seq entry
         prev_result = await session.execute(
             select(AuditEntry.entry_hash).order_by(AuditEntry.seq.desc()).limit(1)
         )
@@ -121,6 +133,19 @@ async def enforce_endpoint(
     except Exception:
         await session.rollback()
         raise
+    finally:
+        chain_write_latency_seconds.observe(time.perf_counter() - t_chain)
+
+    enforce_latency_seconds.observe(time.perf_counter() - t0)
+    enforce_requests.labels(verdict=decision.verdict).inc()
+
+    log.info(
+        "enforce_done",
+        decision_id=str(decision_id),
+        verdict=decision.verdict,
+        matched_rule_id=decision.matched_rule_id,
+        latency_ms=latency_ms,
+    )
 
     return EnforceResponse(
         decision_id=decision_row.id,
