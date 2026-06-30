@@ -1,0 +1,16 @@
+.venv/
+.git/
+.github/
+node_modules/
+dashboard/node_modules/
+dashboard/dist/
+__pycache__/
+*.pyc
+.env
+.env.local
+.DS_Store
+.idea/
+.vscode/
+tests/
+load/
+migrations/versions/__pycache__/
