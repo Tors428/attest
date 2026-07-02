@@ -1,3 +1,16 @@
+# Attest
+
+A policy-enforcement gateway that produces a **portable, tamper-evident conformance
+receipt** for every LLM decision — a signed, hash-linked audit record that a third party
+can verify without trusting the system that produced it.
+
+Identity and authorization have interoperable standards; *behavioral conformance* — what an
+authenticated agent actually does at inference time — does not. Attest is a minimal reference
+implementation of the missing piece: cheap, verifiable, per-decision evidence. Design
+rationale and limits: **[docs/behavioral-conformance.md](docs/behavioral-conformance.md)**.
+
+**Stack:** async FastAPI · PostgreSQL · Ed25519 · React/TypeScript
+
 The verifier caught a database-level bypass without any application-layer help. Anyone holding the public verify key can run this check.
 
 ## Load characteristics
