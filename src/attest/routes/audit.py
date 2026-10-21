@@ -6,10 +6,11 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from attest.chain import ChainInputs, verify_entry
+from attest.chain import verify_entry
 from attest.config import settings
 from attest.db import SessionLocal
-from attest.models import AuditEntry, Decision
+from attest.ledger import chain_inputs_for, entry_of
+from attest.models import AuditEntry, Decision, DecisionPayload
 
 router = APIRouter(prefix="/v1/audit", tags=["audit"])
 
@@ -36,6 +37,12 @@ class AuditRow(BaseModel):
     signature_b64: str
     signed_at: str
     created_at: str
+
+
+class PayloadRead(BaseModel):
+    decision_id: UUID
+    input_text: str
+    raw_output_text: str
 
 
 class VerifyResult(BaseModel):
@@ -98,24 +105,8 @@ async def verify_chain(session: AsyncSession = Depends(get_session)):
                 failure_reason="prev_hash does not match preceding entry_hash",
             )
 
-        inputs = ChainInputs(
-            decision_id=decision.id,
-            input_hash=decision.input_hash,
-            output_hash=decision.output_hash,
-            verdict=decision.verdict.value,
-            reasons=decision.reasons or {},
-            signed_at=entry.signed_at,
-        )
-
-        # reconstruct an entry-shaped object that verify_entry expects
-        from attest.chain import ChainEntry
-
-        candidate = ChainEntry(
-            prev_hash=entry.prev_hash,
-            entry_hash=entry.entry_hash,
-            signature=entry.signature,
-            signed_at=entry.signed_at,
-        )
+        inputs = chain_inputs_for(decision, entry.signed_at)
+        candidate = entry_of(entry)
 
         if not verify_entry(inputs, candidate, pub):
             return VerifyResult(
@@ -158,4 +149,19 @@ async def get_audit(
         signature_b64=_b64(entry.signature),
         signed_at=entry.signed_at.isoformat(),
         created_at=decision.created_at.isoformat(),
+    )
+
+
+@router.get("/{decision_id}/payload", response_model=PayloadRead)
+async def get_payload(
+    decision_id: UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    payload = await session.get(DecisionPayload, decision_id)
+    if payload is None:
+        raise HTTPException(404, f"no stored payload for decision {decision_id}")
+    return PayloadRead(
+        decision_id=payload.decision_id,
+        input_text=payload.input_text,
+        raw_output_text=payload.raw_output_text,
     )

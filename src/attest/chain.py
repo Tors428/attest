@@ -21,6 +21,12 @@ class ChainInputs:
     verdict: str
     reasons: dict
     signed_at: datetime
+    # v2 entries also bind the raw (pre-policy) output and the exact policy
+    # version, so a stored payload can be replayed and checked against the chain.
+    # v1 entries leave these as None and hash exactly as before.
+    raw_output_hash: bytes | None = None
+    policy_id: UUID | None = None
+    policy_version: int | None = None
 
 
 @dataclass(frozen=True)
@@ -48,6 +54,13 @@ def compute_entry_hash(prev_hash: bytes, inputs: ChainInputs) -> bytes:
     h.update(inputs.verdict.encode("utf-8"))
     h.update(_canonical_reasons(inputs.reasons))
     h.update(inputs.signed_at.isoformat().encode("utf-8"))
+    if inputs.raw_output_hash is not None:
+        if inputs.policy_id is None or inputs.policy_version is None:
+            raise ValueError("v2 entry needs policy_id and policy_version")
+        h.update(b"attest.v2")
+        h.update(inputs.raw_output_hash)
+        h.update(inputs.policy_id.bytes)
+        h.update(inputs.policy_version.to_bytes(4, "big"))
     return h.digest()
 
 

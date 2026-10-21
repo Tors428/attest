@@ -4,14 +4,13 @@ from uuid import UUID, uuid4
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from attest.chain import GENESIS_PREV_HASH, ChainInputs, build_entry, now_utc
 from attest.config import settings
 from attest.db import SessionLocal
 from attest.dsl import PolicyDSL
-from attest.hashing import sha256_bytes
+from attest.ledger import append_decision, lock_chain
 from attest.llm import generate
 from attest.matcher import enforce as run_policy
 from attest.metrics import (
@@ -20,12 +19,10 @@ from attest.metrics import (
     enforce_requests,
     llm_latency_seconds,
 )
-from attest.models import AuditEntry, Decision, Policy, Verdict
+from attest.models import Policy
 
 router = APIRouter(prefix="/v1", tags=["enforce"])
 log = structlog.get_logger("attest.enforce")
-
-AUDIT_CHAIN_LOCK_KEY = 0xA77E57
 
 
 async def get_session() -> AsyncSession:
@@ -83,58 +80,26 @@ async def enforce_endpoint(
     latency_ms = int((time.perf_counter() - t0) * 1000)
 
     # 4. write decision + audit entry — advisory lock keeps the chain linear
-    decision_id = uuid4()
     t_chain = time.perf_counter()
     try:
-        await session.execute(
-            text("select pg_advisory_xact_lock(:k)"), {"k": AUDIT_CHAIN_LOCK_KEY}
+        await lock_chain(session)
+        decision_row = await append_decision(
+            session,
+            policy_row,
+            payload.input,
+            llm_output,
+            decision,
+            latency_ms,
+            settings.signing_key_bytes,
+            store_payload=settings.attest_store_payloads,
         )
-
-        decision_row = Decision(
-            id=decision_id,
-            policy_id=policy_row.id,
-            policy_version=policy_row.version,
-            input_hash=sha256_bytes(payload.input),
-            output_hash=sha256_bytes(decision.output),
-            verdict=Verdict(decision.verdict),
-            reasons={
-                "matched_rule_id": decision.matched_rule_id,
-                "reason": decision.reason,
-            },
-            latency_ms=latency_ms,
-        )
-        session.add(decision_row)
-        await session.flush()
-
-        prev_result = await session.execute(
-            select(AuditEntry.entry_hash).order_by(AuditEntry.seq.desc()).limit(1)
-        )
-        prev_hash = prev_result.scalar() or GENESIS_PREV_HASH
-
-        chain_inputs = ChainInputs(
-            decision_id=decision_row.id,
-            input_hash=decision_row.input_hash,
-            output_hash=decision_row.output_hash,
-            verdict=decision_row.verdict.value,
-            reasons=decision_row.reasons,
-            signed_at=now_utc(),
-        )
-        entry = build_entry(prev_hash, chain_inputs, settings.signing_key_bytes)
-
-        audit_row = AuditEntry(
-            decision_id=decision_row.id,
-            prev_hash=entry.prev_hash,
-            entry_hash=entry.entry_hash,
-            signature=entry.signature,
-            signed_at=entry.signed_at,
-        )
-        session.add(audit_row)
         await session.commit()
     except Exception:
         await session.rollback()
         raise
     finally:
         chain_write_latency_seconds.observe(time.perf_counter() - t_chain)
+    decision_id = decision_row.id
 
     enforce_latency_seconds.observe(time.perf_counter() - t0)
     enforce_requests.labels(verdict=decision.verdict).inc()

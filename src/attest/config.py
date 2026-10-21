@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     attest_verify_key: str
     groq_api_key: str
     groq_model: str = "llama-3.3-70b-versatile"
+    # keep raw input/output so decisions can be replayed against new policies
+    attest_store_payloads: bool = True
 
     @property
     def signing_key_bytes(self) -> bytes:
