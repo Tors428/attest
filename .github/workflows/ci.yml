@@ -23,4 +23,4 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Run tests
-        run: pytest -v tests/test_matcher.py tests/test_chain.py
+        run: pytest -v tests/test_matcher.py tests/test_chain.py tests/test_replay.py

@@ -11,3 +11,5 @@ __pycache__/
 # k6 outputs later
 load/results/
 *.egg-info/
+# replay output
+replay-report*.json
