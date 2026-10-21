@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import ReplayTab from "./ReplayTab";
 
 const API_BASE = "http://127.0.0.1:8000";
 
@@ -34,6 +35,7 @@ function verdictColor(v: string) {
 }
 
 export default function App() {
+  const [tab, setTab] = useState<"audit" | "replay">("audit");
   const [rows, setRows] = useState<AuditRow[]>([]);
   const [verifyResult, setVerifyResult] = useState<VerifyResult | null>(null);
   const [verifying, setVerifying] = useState(false);
@@ -108,6 +110,32 @@ export default function App() {
         </p>
       </header>
 
+      <nav style={{ display: "flex", gap: 16, marginBottom: 28, borderBottom: "1px solid #ddd" }}>
+        {(["audit", "replay"] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            style={{
+              padding: "8px 0",
+              background: "none",
+              border: "none",
+              borderBottom: tab === t ? "2px solid #111" : "2px solid transparent",
+              fontFamily: "inherit",
+              fontSize: 13,
+              color: tab === t ? "#111" : "#888",
+              cursor: "pointer",
+              marginBottom: -1,
+            }}
+          >
+            {t === "audit" ? "audit log" : "policy replay"}
+          </button>
+        ))}
+      </nav>
+
+      {tab === "replay" && <ReplayTab apiBase={API_BASE} />}
+
+      {tab === "audit" && (
+      <>
       <section style={{ marginBottom: 32 }}>
         <h2 style={{ fontSize: 14, textTransform: "uppercase", color: "#666", letterSpacing: 1 }}>
           run enforce
@@ -240,6 +268,8 @@ export default function App() {
           </div>
         )}
       </section>
+      </>
+      )}
     </div>
   );
 }
