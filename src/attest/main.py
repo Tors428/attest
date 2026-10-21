@@ -5,7 +5,7 @@ from sqlalchemy import text
 
 from attest.db import engine
 from attest.logging_setup import configure_logging
-from attest.routes import audit, enforce, policies
+from attest.routes import audit, enforce, policies, replays
 
 configure_logging()
 
@@ -22,6 +22,7 @@ app.add_middleware(
 app.include_router(policies.router)
 app.include_router(enforce.router)
 app.include_router(audit.router)
+app.include_router(replays.router)
 
 
 @app.get("/healthz")
