@@ -170,7 +170,7 @@ def _print_summary(report: dict, out: Path, report_id) -> None:
 async def run_verify(args) -> int:
     from attest.config import settings
     from attest.db import SessionLocal, engine
-    from attest.verify import downstream, find_problems, label
+    from attest.verify import report
 
     try:
         async with SessionLocal() as session:
@@ -178,18 +178,16 @@ async def run_verify(args) -> int:
     finally:
         await engine.dispose()
 
-    problems = find_problems(records, settings.verify_key_bytes)
+    problems = report(records, settings.verify_key_bytes)
     print(f"checked {len(records)} entries")
     if not problems:
         print("chain ok")
         return 0
 
-    by_seq = {r.seq: r for r in records}
-    below = downstream(records, [p.seq for p in problems])
     for p in problems:
-        print(f"TAMPERED seq {p.seq} ({label(by_seq[p.seq])}): {p.reason}")
-        for s in below[p.seq]:
-            print(f"  downstream seq {s} ({label(by_seq[s])})")
+        print(f"TAMPERED seq {p['seq']} ({p['label']}): {p['reason']}")
+        for d in p["downstream"]:
+            print(f"  downstream seq {d['seq']} ({d['label']})")
     return 1
 
 

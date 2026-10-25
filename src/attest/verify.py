@@ -65,3 +65,18 @@ def downstream(records: list[ReplayRecord], bad_seqs: list[int]) -> dict[int, li
                     todo.append(child)
         out[start] = sorted(seen)
     return out
+
+
+def report(records: list[ReplayRecord], public_key: bytes) -> list[dict]:
+    problems = find_problems(records, public_key)
+    by_seq = {r.seq: r for r in records}
+    below = downstream(records, [p.seq for p in problems])
+    return [
+        {
+            "seq": p.seq,
+            "label": label(by_seq[p.seq]),
+            "reason": p.reason,
+            "downstream": [{"seq": s, "label": label(by_seq[s])} for s in below[p.seq]],
+        }
+        for p in problems
+    ]

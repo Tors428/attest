@@ -7,10 +7,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from attest.chain import verify_entry
+from attest.cli import _load_records
 from attest.config import settings
 from attest.db import SessionLocal
 from attest.ledger import chain_inputs_for, entry_of
 from attest.models import AuditEntry, Decision, DecisionPayload
+from attest.verify import report
 
 router = APIRouter(prefix="/v1/audit", tags=["audit"])
 
@@ -50,6 +52,12 @@ class VerifyResult(BaseModel):
     valid: bool
     failed_at_seq: int | None = None
     failure_reason: str | None = None
+
+
+class FullVerify(BaseModel):
+    entries_checked: int
+    valid: bool
+    problems: list[dict]
 
 
 @router.get("", response_model=list[AuditRow])
@@ -120,6 +128,14 @@ async def verify_chain(session: AsyncSession = Depends(get_session)):
         checked += 1
 
     return VerifyResult(entries_checked=checked, valid=True)
+
+
+@router.get("/verify/full", response_model=FullVerify)
+async def verify_full(session: AsyncSession = Depends(get_session)):
+    # unlike /verify this keeps going and says what each bad entry fed into
+    records = await _load_records(session, 2**62)
+    problems = report(records, settings.verify_key_bytes)
+    return FullVerify(entries_checked=len(records), valid=not problems, problems=problems)
 
 
 @router.get("/{decision_id}", response_model=AuditRow)

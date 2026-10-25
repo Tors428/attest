@@ -8,7 +8,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from attest.chain import GENESIS_PREV_HASH, ChainInputs, build_entry, now_utc
 from attest.hashing import sha256_bytes
 from attest.replay import ReplayRecord, b64
-from attest.verify import downstream, find_problems
+from attest.verify import downstream, find_problems, report
 
 POLICY_ID = uuid.uuid4()
 
@@ -95,3 +95,20 @@ def test_records_without_refs_have_no_downstream():
     records = build(priv, DAG)
     records[0].input_text = "not json"
     assert downstream(records, [6]) == {6: []}
+
+
+def test_report_labels_problems_and_downstream():
+    priv, pub = keys()
+    records = build(priv, DAG)
+    records[2].input_text = records[2].input_text.replace('"rows": 10', '"rows": 1')
+    assert report(records, pub) == [
+        {
+            "seq": 3,
+            "label": "model.stg_orders",
+            "reason": find_problems(records, pub)[0].reason,
+            "downstream": [
+                {"seq": 5, "label": "model.customers"},
+                {"seq": 6, "label": "test.unique_orders"},
+            ],
+        }
+    ]
