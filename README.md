@@ -38,6 +38,8 @@ attest replay --policy policies/pii_redaction_v2.yaml --from 1 --to 5000
 attest verify-report replay-report.json
 ```
 
+`attest verify` checks the whole chain and every stored payload without a candidate policy, and reports every bad entry rather than stopping at the first.
+
 What `replay` does, in order:
 
 1. **Verifies the chain** from genesis up to `--to` (prev-hash links and every Ed25519 signature). Any break and it refuses to run.
@@ -66,6 +68,65 @@ The dashboard's **policy replay** tab lists the flipped decisions with the rule 
 Three runs, all within 2% of each other. Local Postgres 17, Apple M3, Python 3.13. The headline: the "obvious" regex fix catches 115 real SSNs but would block 424 legitimate order-status replies, which is the kind of thing you want to know before deploying, not after.
 
 Replay throughput is bound by Ed25519 verification (~330µs per signature through `cryptography`, and it holds the GIL, so threads don't help). Policy evaluation itself is about 12x faster than verification.
+
+## dbt adapter
+
+`adapters/dbt/` puts dbt runs on the same chain. Each dbt node in a run (model, seed, snapshot, test) becomes one signed chain record, and each record carries `refs`: the entry hash of the latest record of every upstream node. So the chain doubles as signed lineage, and `attest verify` can say not just which record was edited but everything built on top of it.
+
+```bash
+pip install -e adapters/dbt
+attest-dbt ingest path/to/target   # reads run_results.json, manifest.json, catalog.json if present
+attest verify
+```
+
+`ingest` exits 1 if anything was blocked, so it can gate a pipeline. `attest verify` walks the whole chain and every stored payload, keeps going past the first bad entry, and prints each one with its downstream records.
+
+Each record is canonical JSON with: `invocation_id`, `unique_id`, `resource_type`, `status`, `execution_time`, `materialization`, `run_kind` (`incremental` or `full`), `rows` (`rows_affected` from the adapter, or null), `sql_sha256` (compiled SQL), `columns_sha256` (sorted column names and types from `catalog.json`, or null), and `refs`.
+
+The adapter turns each record into signals (`status=fail test=fail rows=drop` and so on) and `adapters/dbt/policies/dbt_quality.yaml` decides what to do with them:
+
+- **Failed test blocks** (`block_failed_test`). `fail` or `error` on a test.
+- **Row drop flags** (`flag_row_drop`). Rows below 0.7x the median of the node's last 7 runs of the same kind. If the compiled SQL hash changed since the node's previous run, it's tagged `code_change` instead (`flag_code_change`), since a deliberate rewrite shrinking a table is a different thing from data going missing.
+- **Schema change flags** (`flag_schema_change`). The column hash differs from the node's last known one.
+
+Rules it follows:
+
+- Dedupe on `(invocation_id, unique_id)`. Ingesting the same target twice adds nothing.
+- History is per node. A partial run (`--select`) compares each node only to its own past records, so nodes that didn't run aren't missing anything.
+- Incremental and full-refresh runs are compared separately. An incremental run that adds 100 rows isn't a drop from a full build of 10,000.
+- No `catalog.json` means the schema check is skipped (and recorded as `schema=skipped`), not passed.
+- Warn tests are recorded as `test=warn` and never block.
+
+### Demo
+
+From `adapters/dbt/`, against jaffle_shop on dbt-duckdb. `DATABASE_URL` has to point at a scratch Postgres; the Makefile refuses to run without it, so the demo never falls back to the database in `.env`.
+
+```bash
+cd adapters/dbt
+export DATABASE_URL=postgresql+asyncpg://attest@127.0.0.1:54329/attest_dbt
+make demo     # two builds, each ingested
+make tamper   # edit the row count on the first raw_orders record, straight in postgres
+make verify
+```
+
+What a run gave:
+
+| | |
+|---|---|
+| Build 1 | 28 records ingested, all allow |
+| Build 2 (half the orders removed) | 28 ingested, `seed.jaffle_shop.raw_orders` flagged `flag_row_drop` |
+| Re-ingest of the same target | 28 skipped |
+| Verify after tamper | seq 1 (`raw_orders`) tampered, plus 18 downstream records |
+
+The 18 downstream records are `stg_orders`, `orders`, `customers` and their tests. The payments side (`raw_payments`, `stg_payments` and their tests) isn't listed, which is right: it doesn't depend on `raw_orders`. `orders` and `customers` do read from payments too, but damage only flows downstream, not sideways.
+
+### Limitations
+
+- **Model row counts are null with dbt-duckdb.** It only reports `rows_affected` for seeds, so in the demo the row check only applies to seeds. Nulls are recorded as null, never guessed, and never flag.
+- **`dbt docs generate` overwrites `run_results.json`.** `ingest` refuses a results file from anything but a run command, and the Makefile copies `run_results.json` and `manifest.json` aside before generating docs for `catalog.json`.
+- **Only the first matching rule is recorded per record.** A test that fails and also changed schema shows as `block_failed_test`. Every signal is still in the signed payload, so nothing is lost, it's just not in the verdict.
+- **The median uses up to the last 7 runs**, so one prior run is enough to flag. Early on, one odd run sets the baseline.
+- **dbt doesn't say when an incremental model's first run was really a full build.** That run is recorded as `incremental` and becomes part of the incremental baseline.
 
 ## Endpoints
 
@@ -139,9 +200,11 @@ The Dockerfile is multi-stage (builder + slim runtime) and the deployed image is
 
 - `tests/test_matcher.py` — deterministic enforcement across allow/transform/block cases, plus a determinism property test (same input twice = identical decision)
 - `tests/test_replay.py` — replay end to end in memory: v1 entries still verify, v2 binds policy version, the SSN rule change flips the right records, refusal on edited verdicts, deleted entries and edited payloads, signed report roundtrip and tamper detection
+- `tests/test_verify.py` — verify keeps going past the first bad entry, an edited row count is caught along with everything downstream via `refs`, a deleted entry breaks the next link, records without `refs` have no downstream
+- `adapters/dbt/tests/` — artifact parsing (one record per node, null row counts stay null, column hash ignores catalog order, missing catalog, incremental run kind, refuses docs-generate results) and the checks (dedupe, refs, partial runs, incremental vs full, 7-run window, schema skip and change, failed test blocks, warn never blocks, row drop vs code change)
 - `tests/test_chain.py` — 9 property tests: hash length, determinism, key-order independence for `reasons`, build-and-verify roundtrip, tamper-detection for verdict and output changes, wrong-key rejection, chain-link changes when prev_hash changes, invalid-length prev_hash raises
 
-Run: `pytest -v`
+Run: `pytest -v tests adapters/dbt/tests`
 
 ## Files worth reading first
 
