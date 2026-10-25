@@ -28,8 +28,8 @@ from attest.matcher import enforce
 REPORT_KIND = "attest.replay_report"
 REPORT_FORMAT = 1
 
-# transform still delivers an output, so for flip purposes it counts as allowed
-ALLOWED = {"allow", "transform"}
+# transform and flag still deliver an output, so for flip purposes they count as allowed
+ALLOWED = {"allow", "transform", "flag"}
 
 
 class ReplayRefused(Exception):

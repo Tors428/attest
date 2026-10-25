@@ -27,6 +27,7 @@ class Verdict(str, Enum):
     ALLOW = "allow"
     BLOCK = "block"
     TRANSFORM = "transform"
+    FLAG = "flag"
 
 
 class Policy(Base):

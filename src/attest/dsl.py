@@ -28,7 +28,7 @@ Match = Union[RegexMatch, ContainsMatch, LengthMatch]
 
 
 class Action(BaseModel):
-    verdict: Literal["allow", "block", "transform"]
+    verdict: Literal["allow", "block", "transform", "flag"]
     reason: str
     replace_with: str | None = None
 

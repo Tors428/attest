@@ -65,6 +65,7 @@ const td = { padding: "8px 6px", verticalAlign: "top" as const };
 function verdictColor(v: string) {
   if (v === "allow") return "#1f9d55";
   if (v === "block") return "#c81e1e";
+  if (v === "flag") return "#7c3aed";
   return "#a16207";
 }
 

@@ -31,6 +31,7 @@ function shortHash(b64: string) {
 function verdictColor(v: string) {
   if (v === "allow") return "#1f9d55";
   if (v === "block") return "#c81e1e";
+  if (v === "flag") return "#7c3aed";
   return "#a16207"; // transform
 }
 
