@@ -1,0 +1,4 @@
+.dbt-venv/
+demo/jaffle_shop/
+demo/artifacts/
+*.egg-info/
