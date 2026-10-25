@@ -1,0 +1,16 @@
+[project]
+name = "attest-dbt"
+version = "0.0.1"
+description = "record dbt runs on the attest chain"
+requires-python = ">=3.11"
+dependencies = ["attest"]
+
+[project.scripts]
+attest-dbt = "attest_dbt.cli:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["attest_dbt*"]

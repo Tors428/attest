@@ -1,0 +1,41 @@
+name: dbt_quality
+version: 1
+default: allow
+# the adapter turns each dbt node into signals like "status=fail test=fail rows=drop".
+# the row math lives in attest_dbt/checks.py, these rules just decide what to do.
+rules:
+  - id: block_failed_test
+    match:
+      type: regex
+      field: output
+      pattern: '\btest=fail\b'
+    action:
+      verdict: block
+      reason: dbt test failed
+
+  - id: flag_row_drop
+    match:
+      type: regex
+      field: output
+      pattern: '\brows=drop\b'
+    action:
+      verdict: flag
+      reason: rows fell below 0.7x the median of recent runs of the same kind
+
+  - id: flag_code_change
+    match:
+      type: regex
+      field: output
+      pattern: '\brows=code_change\b'
+    action:
+      verdict: flag
+      reason: rows fell below 0.7x median but the compiled sql changed this run
+
+  - id: flag_schema_change
+    match:
+      type: regex
+      field: output
+      pattern: '\bschema=changed\b'
+    action:
+      verdict: flag
+      reason: column names or types changed since the last run
