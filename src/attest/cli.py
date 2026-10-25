@@ -167,6 +167,32 @@ def _print_summary(report: dict, out: Path, report_id) -> None:
     print(f"signed report written to {out}" + (f" (id {report_id})" if report_id else ""))
 
 
+async def run_verify(args) -> int:
+    from attest.config import settings
+    from attest.db import SessionLocal, engine
+    from attest.verify import downstream, find_problems, label
+
+    try:
+        async with SessionLocal() as session:
+            records = await _load_records(session, 2**62)
+    finally:
+        await engine.dispose()
+
+    problems = find_problems(records, settings.verify_key_bytes)
+    print(f"checked {len(records)} entries")
+    if not problems:
+        print("chain ok")
+        return 0
+
+    by_seq = {r.seq: r for r in records}
+    below = downstream(records, [p.seq for p in problems])
+    for p in problems:
+        print(f"TAMPERED seq {p.seq} ({label(by_seq[p.seq])}): {p.reason}")
+        for s in below[p.seq]:
+            print(f"  downstream seq {s} ({label(by_seq[s])})")
+    return 1
+
+
 def run_verify_report(args) -> int:
     from attest.replay import verify_report
 
@@ -193,6 +219,8 @@ def main(argv=None) -> int:
     r.add_argument("--out", default="replay-report.json")
     r.add_argument("--no-save", action="store_true", help="don't store the report in the db")
 
+    sub.add_parser("verify", help="check the whole chain and stored payloads, show downstream damage")
+
     v = sub.add_parser("verify-report", help="check a signed replay report")
     v.add_argument("file")
     v.add_argument("--pubkey", help="base64 ed25519 public key (default: ATTEST_VERIFY_KEY)")
@@ -200,6 +228,8 @@ def main(argv=None) -> int:
     args = p.parse_args(argv)
     if args.cmd == "replay":
         return asyncio.run(run_replay(args))
+    if args.cmd == "verify":
+        return asyncio.run(run_verify(args))
     return run_verify_report(args)
 
 
