@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import DbtTab from "./DbtTab";
 import ReplayTab from "./ReplayTab";
 
 const API_BASE = "http://127.0.0.1:8000";
@@ -36,7 +37,7 @@ function verdictColor(v: string) {
 }
 
 export default function App() {
-  const [tab, setTab] = useState<"audit" | "replay">("audit");
+  const [tab, setTab] = useState<"audit" | "replay" | "dbt">("audit");
   const [rows, setRows] = useState<AuditRow[]>([]);
   const [verifyResult, setVerifyResult] = useState<VerifyResult | null>(null);
   const [verifying, setVerifying] = useState(false);
@@ -112,7 +113,7 @@ export default function App() {
       </header>
 
       <nav style={{ display: "flex", gap: 16, marginBottom: 28, borderBottom: "1px solid #ddd" }}>
-        {(["audit", "replay"] as const).map((t) => (
+        {(["audit", "replay", "dbt"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -128,12 +129,13 @@ export default function App() {
               marginBottom: -1,
             }}
           >
-            {t === "audit" ? "audit log" : "policy replay"}
+            {t === "audit" ? "audit log" : t === "replay" ? "policy replay" : "dbt runs"}
           </button>
         ))}
       </nav>
 
       {tab === "replay" && <ReplayTab apiBase={API_BASE} />}
+      {tab === "dbt" && <DbtTab apiBase={API_BASE} />}
 
       {tab === "audit" && (
       <>
